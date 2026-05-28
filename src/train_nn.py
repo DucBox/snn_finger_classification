@@ -10,12 +10,9 @@ from tensorflow.keras.layers import (
 from tensorflow.keras.models import Model
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 from tensorflow.keras.utils import to_categorical
-from tensorflow.keras import metrics as km
 from sklearn.preprocessing import MinMaxScaler
 
-from src.utils import set_seeds, split_participants, SEED
-
-HAND_MAP = {"left": 0, "right": 1}
+from src.utils import set_seeds, split_participants, build_label_map, apply_labels, TASKS, SEED
 
 
 def build_tiny_nn(n_classes: int = 2) -> tf.keras.Model:
@@ -72,36 +69,37 @@ def run(
     data_path:    str,
     output_model: str  = "outputs/model_nn.h5",
     model_type:   str  = "full",
+    task:         str  = "thumb_lr",
     epochs:       int  = 100,
     batch_size:   int  = 16,
     device_arg:   str  = "auto",
 ):
     assert model_type in _MODELS, f"model_type must be one of {list(_MODELS)}"
+    assert task in TASKS,         f"task must be one of {list(TASKS)}"
     set_seeds(SEED)
     print(f"Device: {_setup_device(device_arg)}")
-    print(f"Model type: {model_type}")
+    print(f"Model type: {model_type}  |  Task: {task}")
 
     print(f"\n[STEP 1/4] Loading data: {data_path}")
     df = pl.read_parquet(data_path).sort("Timestamp")
-    df = df.filter(pl.col("Finger").is_in(["thumb", "index"]))
-    print(f"[STEP 1/4] Done. {len(df):,} samples (thumb + index).\n")
 
-    print("[STEP 2/4] Splitting participants ...")
-    all_ptcp = df["Participant"].unique().to_list()
+    # Build canonical label_map from full dataset so test encoding is consistent
+    label_map = build_label_map(df, task)
+    n_classes  = len(label_map)
+    print(f"  Labels ({n_classes} classes): {label_map}")
+
+    all_ptcp  = df["Participant"].unique().to_list()
     train_ids, test_ids = split_participants(all_ptcp)
-    assert not (set(train_ids) & set(test_ids)), "Participant overlap detected"
-    print(f"  Train: P{train_ids[0]} → P{train_ids[-1]}  ({len(train_ids)} participants)")
-    print(f"  Test:  P{test_ids[0]}  → P{test_ids[-1]}   ({len(test_ids)} participants)\n")
+    print(f"  Train: P{train_ids[0]} → P{train_ids[-1]}  |  Test: P{test_ids[0]} → P{test_ids[-1]}")
 
-    df_train = df.filter(pl.col("Participant").is_in(train_ids))
-    df_test  = df.filter(pl.col("Participant").is_in(test_ids))
+    df_train, y_train_int = apply_labels(df.filter(pl.col("Participant").is_in(train_ids)), task, label_map)
+    df_test,  y_test_int  = apply_labels(df.filter(pl.col("Participant").is_in(test_ids)),  task, label_map)
+    print(f"[STEP 1/4] Done. {len(df_train):,} train / {len(df_test):,} test samples.\n")
 
     X_feat_train = np.array(df_train["BlobResized8x8"].to_list(), dtype=np.float64)
     X_feat_test  = np.array(df_test["BlobResized8x8"].to_list(),  dtype=np.float64)
     X_area_train = df_train["Area"].to_numpy().reshape(-1, 1)
     X_area_test  = df_test["Area"].to_numpy().reshape(-1, 1)
-    y_train_int  = np.array([HAND_MAP[h] for h in df_train["Handedness"].to_list()], dtype=np.int32)
-    y_test_int   = np.array([HAND_MAP[h] for h in df_test["Handedness"].to_list()],  dtype=np.int32)
 
     print("[STEP 3/4] Normalizing features (MinMaxScaler) ...")
     scaler_feat = MinMaxScaler()
@@ -111,18 +109,17 @@ def run(
     X_area_train = scaler_area.fit_transform(X_area_train).astype(np.float32)
     X_area_test  = scaler_area.transform(X_area_test).astype(np.float32)
 
-    y_train = to_categorical(y_train_int, num_classes=2)
-    y_test  = to_categorical(y_test_int,  num_classes=2)
+    y_train = to_categorical(y_train_int, num_classes=n_classes)
+    y_test  = to_categorical(y_test_int,  num_classes=n_classes)
 
-    print(f"  X_feat {X_feat_train.shape}  X_area {X_area_train.shape}")
-    print(f"  Train  left={int((y_train_int==0).sum()):,}  right={int((y_train_int==1).sum()):,}\n")
+    print(f"  X_feat {X_feat_train.shape}  X_area {X_area_train.shape}\n")
 
     print("[STEP 4/4] Building and training model ...")
-    model = _MODELS[model_type](n_classes=2)
+    model = _MODELS[model_type](n_classes=n_classes)
     model.compile(
         optimizer="adam",
-        loss="binary_crossentropy",
-        metrics=[km.BinaryAccuracy(name="accuracy")],
+        loss="categorical_crossentropy",
+        metrics=["accuracy"],
     )
     model.summary()
     print()

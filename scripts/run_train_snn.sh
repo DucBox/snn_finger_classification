@@ -10,6 +10,7 @@
 set -e
 
 MODEL_TYPE="full"
+TASK="thumb_lr"
 OUTPUT_DIR="outputs/models"
 EPOCHS=70
 BATCH_SIZE=16
@@ -20,6 +21,7 @@ DEVICE="auto"
 while [[ $# -gt 0 ]]; do
   case $1 in
     --model-type)  MODEL_TYPE="$2";  shift 2 ;;
+    --task)        TASK="$2";        shift 2 ;;
     --output-dir)  OUTPUT_DIR="$2";  shift 2 ;;
     --epochs)      EPOCHS="$2";      shift 2 ;;
     --batch-size)  BATCH_SIZE="$2";  shift 2 ;;
@@ -33,8 +35,9 @@ done
 docker exec snn_finger python3 train_snn.py \
   --data         outputs/snn_finger_processed_data.parquet \
   --output-dir   "$OUTPUT_DIR" \
-  --output-model "model_snn_${MODEL_TYPE}.h5" \
+  --output-model "model_snn_${MODEL_TYPE}_${TASK}.h5" \
   --model-type   "$MODEL_TYPE" \
+  --task         "$TASK" \
   --epochs       "$EPOCHS" \
   --batch-size   "$BATCH_SIZE" \
   --n-steps      "$N_STEPS" \

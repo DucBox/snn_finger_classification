@@ -13,6 +13,8 @@ if __name__ == "__main__":
     parser.add_argument("--output-model", default="model_nn.h5")
     parser.add_argument("--output-dir",   default="outputs", help="Directory to save the model")
     parser.add_argument("--model-type",   default="full", choices=["tiny", "full"])
+    parser.add_argument("--task",         default="thumb_lr",
+                        choices=["thumb_lr","index_lr","hand_lr","5fingers","10fingers","thumb_index","thumb_others"])
     parser.add_argument("--epochs",       type=int,   default=100)
     parser.add_argument("--batch-size",   type=int,   default=16)
     parser.add_argument("--device",       default="auto", choices=["auto", "cpu", "gpu"])
@@ -25,6 +27,7 @@ if __name__ == "__main__":
         data_path    = args.data,
         output_model = output_model,
         model_type   = args.model_type,
+        task         = args.task,
         epochs       = args.epochs,
         batch_size   = args.batch_size,
         device_arg   = args.device,
