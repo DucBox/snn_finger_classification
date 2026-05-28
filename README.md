@@ -1,8 +1,8 @@
 # Finger Identification with Capacitive Images using SNN
 
 Reproduce the CapFingerId paper (Le et al., IUI 2019) and extend it with a Spiking Neural Network
-using `keras_spiking`. Task: classify left/right handedness from capacitive touchscreen images
-(thumb + index finger, participants P1–P20).
+using `keras_spiking`. Supports 7 classification tasks across thumb/index/all fingers with
+configurable output targets (handedness, finger type, or 10-class combined).
 
 ---
 
@@ -18,26 +18,27 @@ No local Python environment needed. All code runs inside the container.
 
 ```
 snn_finger/
+├── data/                       # Raw capacitive sensor files (P1–P20, 199 .txt files)
 ├── notebooks/                  # Original Colab notebooks (reference)
 │   ├── Data_Preperation.ipynb
 │   ├── Train_CNN.ipynb
 │   ├── Train_Optimize_NN.ipynb
 │   └── Optimal_SNN.ipynb
-├── scripts/                    # Shell scripts to run each step
+├── scripts/                    # Shell scripts — one per pipeline step
 │   ├── run_feature_extract.sh
 │   ├── run_train_cnn.sh
-│   ├── run_train_nn.sh
-│   ├── run_train_snn.sh
-│   └── run_power_estimate.sh
+│   ├── run_train_nn.sh         # --task, --model-type, --epochs, --output-dir
+│   ├── run_train_snn.sh        # --task, --model-type, --n-steps, --dt, --epochs, --output-dir
+│   └── run_power_estimate.sh   # --model, --n-steps, --dt
 ├── src/                        # Core modules
 │   ├── preprocess.py           # Raw .txt → parquet (blob detection)
 │   ├── feature_extract.py      # BlobCrop, BlobResized8x8 (cv2), ellipse (cv2.fitEllipse)
 │   ├── train_cnn.py            # CapFingerId CNN architecture
-│   ├── train_nn.py             # Dual-input NN (tiny / full)
-│   ├── train_snn.py            # Spiking NN via keras_spiking (tiny / full)
+│   ├── train_nn.py             # Dual-input NN (tiny / full, 7 tasks)
+│   ├── train_snn.py            # Spiking NN via keras_spiking (tiny / full, 7 tasks)
 │   ├── power_estimate.py       # Energy estimation via keras_spiking.ModelEnergy
-│   └── utils.py                # Seeds, participant split
-├── outputs/                    # Generated data and models (not committed)
+│   └── utils.py                # Seeds, participant split, task/label logic
+├── outputs/                    # Generated data and models
 │   ├── cap_fingered_processed_data.parquet
 │   └── snn_finger_processed_data.parquet
 ├── preprocess.py               # Entry point: raw data → parquet
@@ -63,14 +64,27 @@ docker build -t snn_finger .
 
 ### 2. Start container
 
-Mount the code directory and raw data directory:
+Raw data is already in the `data/` folder. Mount only the project directory:
 
 ```bash
 docker run -d --name snn_finger \
   -v $(pwd):/app \
-  -v /path/to/CapFingerId/data:/data \
   snn_finger tail -f /dev/null
 ```
+
+---
+
+## Scripts Reference
+
+All scripts in `scripts/` wrap `docker exec snn_finger python3 ...` calls with sensible defaults.
+
+| Script | Key params | Default |
+| --- | --- | --- |
+| `run_feature_extract.sh` | `--input`, `--cap-output`, `--snn-output`, `--workers` | — |
+| `run_train_cnn.sh` | `--output-dir`, `--epochs`, `--batch-size`, `--device` | epochs=100 |
+| `run_train_nn.sh` | `--task`, `--model-type`, `--output-dir`, `--epochs`, `--batch-size`, `--device` | task=thumb\_lr, epochs=100 |
+| `run_train_snn.sh` | `--task`, `--model-type`, `--n-steps`, `--dt`, `--output-dir`, `--epochs`, `--device` | task=thumb\_lr, epochs=70 |
+| `run_power_estimate.sh` | `--model` *(required)*, `--n-steps`, `--dt` | n-steps=5, dt=0.3 |
 
 ---
 
@@ -157,32 +171,53 @@ docker exec snn_finger python3 train_cnn.py \
 ### Step 4 — Train NN
 
 Input: `BlobResized8x8` (64-dim) + `Area` (1-dim), MinMaxScaler normalized.  
-Architecture: Dense128/Dense128 → Concat256 → Dense64 → Dense32 → Dense16 → Dense2(softmax).
+Architecture: Dense128/Dense128 → Concat → Dense64 → Dense32 → Dense16 → Dense(n_classes, softmax).
 
-Two model sizes available via `--model-type`:
+#### Training tasks (`--task`)
+
+| `--task` | Fingers used | Output | Classes |
+| --- | --- | --- | --- |
+| `thumb_lr` *(default)* | thumb | left / right | 2 |
+| `index_lr` | index | left / right | 2 |
+| `hand_lr` | all | left / right | 2 |
+| `5fingers` | all | thumb / index / middle / ring / little | 5 |
+| `10fingers` | all | thumb\_left / thumb\_right / … | 10 |
+| `thumb_index` | thumb + index | thumb / index | 2 |
+| `thumb_others` | all | thumb / others | 2 |
+
+#### Model sizes (`--model-type`)
 
 | `--model-type` | Use case | Architecture |
 |---|---|---|
-| `tiny` | Dev / smoke test | 32 / 8 → 16 → 2 |
-| `full` | Full training | 128 / 128 → 64 → 32 → 16 → 2 (+ BatchNorm) |
+| `tiny` | Dev / smoke test | 32 / 8 → 16 → n |
+| `full` | Full training | 128 / 128 → 64 → 32 → 16 → n (+ BatchNorm) |
 
 ```bash
-# Quick smoke test (2 epochs)
-bash scripts/run_train_nn.sh --model-type tiny --epochs 2
+# Quick smoke test
+bash scripts/run_train_nn.sh --model-type tiny --task thumb_lr --epochs 2
 
-# Full training
-bash scripts/run_train_nn.sh --model-type full --output-dir outputs/exp_01
+# Reproduce paper Table 1 cases
+bash scripts/run_train_nn.sh --task thumb_lr     --output-dir outputs/exp_nn
+bash scripts/run_train_nn.sh --task index_lr     --output-dir outputs/exp_nn
+bash scripts/run_train_nn.sh --task hand_lr      --output-dir outputs/exp_nn
+bash scripts/run_train_nn.sh --task 5fingers     --output-dir outputs/exp_nn
+bash scripts/run_train_nn.sh --task 10fingers    --output-dir outputs/exp_nn
+bash scripts/run_train_nn.sh --task thumb_index  --output-dir outputs/exp_nn
+bash scripts/run_train_nn.sh --task thumb_others --output-dir outputs/exp_nn
 ```
 
-Or:
+Or manually:
 
 ```bash
 docker exec snn_finger python3 train_nn.py \
   --model-type  full \
+  --task        thumb_lr \
   --output-dir  outputs/models \
   --epochs      100 \
   --batch-size  16
 ```
+
+Output model is named `model_nn_{model-type}_{task}.h5`.
 
 ---
 
@@ -193,33 +228,40 @@ Trained **from scratch** (not converted from NN) using surrogate gradient backpr
 
 Input is tiled along the time axis: shape `(batch, n_steps, 64)` and `(batch, n_steps, 1)`.
 
+Supports the same `--task` options as the NN (see table above).
+
 | Param | Default | Description |
 |---|---|---|
+| `--task` | `thumb_lr` | Training task (see table above) |
 | `--n-steps` | 5 | Simulation timesteps |
 | `--dt` | 0.3 | Timestep duration (s) |
-| `--model-type` | full | `tiny` or `full` |
+| `--model-type` | `full` | `tiny` or `full` |
 
 ```bash
 # Quick smoke test
-bash scripts/run_train_snn.sh --model-type tiny --epochs 2
+bash scripts/run_train_snn.sh --model-type tiny --task thumb_lr --epochs 2
 
 # Full training
-bash scripts/run_train_snn.sh --model-type full --output-dir outputs/exp_snn
+bash scripts/run_train_snn.sh --task thumb_lr  --output-dir outputs/exp_snn
+bash scripts/run_train_snn.sh --task hand_lr   --output-dir outputs/exp_snn
 
 # Custom timesteps
-bash scripts/run_train_snn.sh --n-steps 10 --dt 0.5 --output-dir outputs/exp_snn_dt05
+bash scripts/run_train_snn.sh --task thumb_lr --n-steps 10 --dt 0.5 --output-dir outputs/exp_snn_dt05
 ```
 
-Or:
+Or manually:
 
 ```bash
 docker exec snn_finger python3 train_snn.py \
   --model-type  full \
+  --task        thumb_lr \
   --output-dir  outputs/models \
   --epochs      70 \
   --n-steps     5 \
   --dt          0.3
 ```
+
+Output model is named `model_snn_{model-type}_{task}.h5`.
 
 ---
 
