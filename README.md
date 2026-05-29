@@ -82,8 +82,8 @@ All scripts in `scripts/` wrap `docker exec snn_finger python3 ...` calls with s
 | --- | --- | --- |
 | `run_feature_extract.sh` | `--input`, `--cap-output`, `--snn-output`, `--workers` | — |
 | `run_train_cnn.sh` | `--output-dir`, `--epochs`, `--batch-size`, `--device` | epochs=100 |
-| `run_train_nn.sh` | `--task`, `--model-type`, `--output-dir`, `--epochs`, `--batch-size`, `--device` | task=thumb\_lr, epochs=100 |
-| `run_train_snn.sh` | `--task`, `--model-type`, `--n-steps`, `--dt`, `--output-dir`, `--epochs`, `--device` | task=thumb\_lr, epochs=70 |
+| `run_train_nn.sh` | `--task`, `--model-type`, `--output-dir`, `--epochs`, `--batch-size`, `--device`, `--no-area` | task=thumb\_lr, epochs=100 |
+| `run_train_snn.sh` | `--task`, `--model-type`, `--n-steps`, `--dt`, `--output-dir`, `--epochs`, `--device`, `--no-area` | task=thumb\_lr, epochs=70 |
 | `run_power_estimate.sh` | `--model` *(required)*, `--n-steps`, `--dt` | n-steps=5, dt=0.3 |
 
 ---
