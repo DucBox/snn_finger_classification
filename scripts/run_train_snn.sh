@@ -17,6 +17,7 @@ BATCH_SIZE=16
 N_STEPS=5
 DT=0.3
 DEVICE="auto"
+NO_AREA=""
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -28,18 +29,23 @@ while [[ $# -gt 0 ]]; do
     --n-steps)     N_STEPS="$2";     shift 2 ;;
     --dt)          DT="$2";          shift 2 ;;
     --device)      DEVICE="$2";      shift 2 ;;
+    --no-area)     NO_AREA="--no-area"; shift ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
 
+AREA_SUFFIX=""
+[[ -n "$NO_AREA" ]] && AREA_SUFFIX="_noarea"
+
 docker exec snn_finger python3 train_snn.py \
   --data         outputs/snn_finger_processed_data.parquet \
   --output-dir   "$OUTPUT_DIR" \
-  --output-model "model_snn_${MODEL_TYPE}_${TASK}.h5" \
+  --output-model "model_snn_${MODEL_TYPE}_${TASK}${AREA_SUFFIX}.h5" \
   --model-type   "$MODEL_TYPE" \
   --task         "$TASK" \
   --epochs       "$EPOCHS" \
   --batch-size   "$BATCH_SIZE" \
   --n-steps      "$N_STEPS" \
   --dt           "$DT" \
-  --device       "$DEVICE"
+  --device       "$DEVICE" \
+  $NO_AREA

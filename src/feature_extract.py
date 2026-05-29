@@ -8,7 +8,6 @@ import polars as pl
 from PIL import Image
 from tqdm import tqdm
 from multiprocessing import Pool
-
 MATRIX_ROWS = 27
 MATRIX_COLS  = 15
 RESIZE_DIM   = 8

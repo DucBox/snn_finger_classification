@@ -15,41 +15,50 @@ from sklearn.preprocessing import MinMaxScaler
 from src.utils import set_seeds, split_participants, build_label_map, apply_labels, TASKS, SEED
 
 
-def build_tiny_nn(n_classes: int = 2) -> tf.keras.Model:
+def build_tiny_nn(n_classes: int = 2, use_area: bool = True) -> tf.keras.Model:
     """Small model for quick dev/test runs."""
     input_blob = Input(shape=(64,), name="input_blob")
-    input_area = Input(shape=(1,),  name="input_area")
-
     x = Dense(32, activation="relu")(input_blob)
-    y = Dense(8,  activation="relu")(input_area)
 
-    z = Concatenate()([x, y])
+    if use_area:
+        input_area = Input(shape=(1,), name="input_area")
+        y = Dense(8, activation="relu")(input_area)
+        z = Concatenate()([x, y])
+        inputs = [input_blob, input_area]
+    else:
+        z = x
+        inputs = input_blob
+
     z = Dense(16, activation="relu")(z)
-
     output = Dense(n_classes, activation="softmax")(z)
-    return Model(inputs=[input_blob, input_area], outputs=output, name="TinyNN")
+    return Model(inputs=inputs, outputs=output, name="TinyNN")
 
 
-def build_full_nn(n_classes: int = 2) -> tf.keras.Model:
+def build_full_nn(n_classes: int = 2, use_area: bool = True) -> tf.keras.Model:
     """Full dual-input architecture from the paper notebook."""
     input_blob = Input(shape=(64,), name="input_blob")
-    input_area = Input(shape=(1,),  name="input_area")
 
     x = Dense(128)(input_blob)
     x = BatchNormalization()(x)
     x = Activation("relu")(x)
 
-    y = Dense(128)(input_area)
-    y = BatchNormalization()(y)
-    y = Activation("relu")(y)
+    if use_area:
+        input_area = Input(shape=(1,), name="input_area")
+        y = Dense(128)(input_area)
+        y = BatchNormalization()(y)
+        y = Activation("relu")(y)
+        z = Concatenate()([x, y])
+        inputs = [input_blob, input_area]
+    else:
+        z = x
+        inputs = input_blob
 
-    z = Concatenate()([x, y])
     z = Dense(64)(z);  z = BatchNormalization()(z);  z = Activation("relu")(z)
     z = Dense(32)(z);  z = BatchNormalization()(z);  z = Activation("relu")(z)
     z = Dense(16)(z);  z = BatchNormalization()(z);  z = Activation("relu")(z)
 
     output = Dense(n_classes, activation="softmax")(z)
-    return Model(inputs=[input_blob, input_area], outputs=output, name="OptimizedNN")
+    return Model(inputs=inputs, outputs=output, name="OptimizedNN")
 
 
 _MODELS = {"tiny": build_tiny_nn, "full": build_full_nn}
@@ -73,17 +82,17 @@ def run(
     epochs:       int  = 100,
     batch_size:   int  = 16,
     device_arg:   str  = "auto",
+    use_area:     bool = True,
 ):
     assert model_type in _MODELS, f"model_type must be one of {list(_MODELS)}"
     assert task in TASKS,         f"task must be one of {list(TASKS)}"
     set_seeds(SEED)
     print(f"Device: {_setup_device(device_arg)}")
-    print(f"Model type: {model_type}  |  Task: {task}")
+    print(f"Model type: {model_type}  |  Task: {task}  |  use_area: {use_area}")
 
     print(f"\n[STEP 1/4] Loading data: {data_path}")
     df = pl.read_parquet(data_path).sort("Timestamp")
 
-    # Build canonical label_map from full dataset so test encoding is consistent
     label_map = build_label_map(df, task)
     n_classes  = len(label_map)
     print(f"  Labels ({n_classes} classes): {label_map}")
@@ -98,24 +107,31 @@ def run(
 
     X_feat_train = np.array(df_train["BlobResized8x8"].to_list(), dtype=np.float64)
     X_feat_test  = np.array(df_test["BlobResized8x8"].to_list(),  dtype=np.float64)
-    X_area_train = df_train["Area"].to_numpy().reshape(-1, 1)
-    X_area_test  = df_test["Area"].to_numpy().reshape(-1, 1)
 
     print("[STEP 3/4] Normalizing features (MinMaxScaler) ...")
     scaler_feat = MinMaxScaler()
-    scaler_area = MinMaxScaler()
     X_feat_train = scaler_feat.fit_transform(X_feat_train).astype(np.float32)
     X_feat_test  = scaler_feat.transform(X_feat_test).astype(np.float32)
-    X_area_train = scaler_area.fit_transform(X_area_train).astype(np.float32)
-    X_area_test  = scaler_area.transform(X_area_test).astype(np.float32)
+
+    if use_area:
+        X_area_train = df_train["Area"].to_numpy().reshape(-1, 1)
+        X_area_test  = df_test["Area"].to_numpy().reshape(-1, 1)
+        scaler_area  = MinMaxScaler()
+        X_area_train = scaler_area.fit_transform(X_area_train).astype(np.float32)
+        X_area_test  = scaler_area.transform(X_area_test).astype(np.float32)
+        X_train_in = [X_feat_train, X_area_train]
+        X_test_in  = [X_feat_test,  X_area_test]
+        print(f"  X_feat {X_feat_train.shape}  X_area {X_area_train.shape}\n")
+    else:
+        X_train_in = X_feat_train
+        X_test_in  = X_feat_test
+        print(f"  X_feat {X_feat_train.shape}  (no area)\n")
 
     y_train = to_categorical(y_train_int, num_classes=n_classes)
     y_test  = to_categorical(y_test_int,  num_classes=n_classes)
 
-    print(f"  X_feat {X_feat_train.shape}  X_area {X_area_train.shape}\n")
-
     print("[STEP 4/4] Building and training model ...")
-    model = _MODELS[model_type](n_classes=n_classes)
+    model = _MODELS[model_type](n_classes=n_classes, use_area=use_area)
     model.compile(
         optimizer="adam",
         loss="categorical_crossentropy",
@@ -126,8 +142,8 @@ def run(
 
     os.makedirs(os.path.dirname(os.path.abspath(output_model)), exist_ok=True)
     model.fit(
-        [X_feat_train, X_area_train], y_train,
-        validation_data=([X_feat_test, X_area_test], y_test),
+        X_train_in, y_train,
+        validation_data=(X_test_in, y_test),
         epochs=epochs,
         batch_size=batch_size,
         callbacks=[
@@ -139,5 +155,5 @@ def run(
     )
 
     best = tf.keras.models.load_model(output_model)
-    loss, acc = best.evaluate([X_feat_test, X_area_test], y_test, verbose=0)
+    loss, acc = best.evaluate(X_test_in, y_test, verbose=0)
     print(f"\n[STEP 4/4] Done.  Best model  |  accuracy={acc:.4f}  loss={loss:.4f}")

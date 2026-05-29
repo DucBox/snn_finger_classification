@@ -20,6 +20,8 @@ if __name__ == "__main__":
     parser.add_argument("--n-steps",      type=int,   default=5)
     parser.add_argument("--dt",           type=float, default=0.3)
     parser.add_argument("--device",       default="auto", choices=["auto", "cpu", "gpu"])
+    parser.add_argument("--no-area",      action="store_true",
+                        help="Train without Area feature (blob-only model)")
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -35,4 +37,5 @@ if __name__ == "__main__":
         n_steps      = args.n_steps,
         dt           = args.dt,
         device_arg   = args.device,
+        use_area     = not args.no_area,
     )

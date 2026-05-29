@@ -18,6 +18,8 @@ if __name__ == "__main__":
     parser.add_argument("--epochs",       type=int,   default=100)
     parser.add_argument("--batch-size",   type=int,   default=16)
     parser.add_argument("--device",       default="auto", choices=["auto", "cpu", "gpu"])
+    parser.add_argument("--no-area",      action="store_true",
+                        help="Train without Area feature (blob-only model)")
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -31,4 +33,5 @@ if __name__ == "__main__":
         epochs       = args.epochs,
         batch_size   = args.batch_size,
         device_arg   = args.device,
+        use_area     = not args.no_area,
     )
